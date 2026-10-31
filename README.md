@@ -1,4 +1,4 @@
-﻿中文 | [English](README.en.md)
+中文 | [English](README.en.md)
 
 # Agent Skills Junction 🚀
 
@@ -143,6 +143,26 @@ ls -la ~/.pi/agent/skills
 ```
 
 ---
+
+
+---
+
+## 🩺 技能 Token 健康度审计 (Prompt Bloat Auditor)
+
+当你的中央技能库壮大至几十个技能时，部分 Agent 运行时（如 Gemini / Antigravity、Codex、Pi 等）会在初始化时将所有技能 frontmatter 中的 `description` 注入 System Prompt 作为路由索引。如果某些第三方技能在描述里塞入了长篇大论，会导致每次简单提问时凭空增加几千 Token 的固定开销。
+
+本项目内置了高密度 Token 健康审计脚本，助你随时把脉技能库对 Prompt 的常驻负载：
+
+``powershell
+# 执行技能描述与 Token 开销审计（Windows）
+.\scripts\audit-tokens.ps1
+
+# 自定义字符告警阈值（默认 160 字符，可按需更严格）
+.\scripts\audit-tokens.ps1 -ThresholdChars 120 -Top 15
+``
+
+> [!TIP]
+> **最佳实践**：技能的 `description` 仅需 1~2 句高密度意图触发词（100 字符内最佳）。详细的使用规则、参数规范与用例应存放在 `SKILL.md` 正文体中，模型调用时才会按需读取正文，平时零占用。
 
 ## 🔄 卸载与清理
 
