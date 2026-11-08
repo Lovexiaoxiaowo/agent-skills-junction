@@ -3,33 +3,45 @@
     Agent Skills Junction - Skill Token & Description Health Auditor
 .DESCRIPTION
     Scans the SSOT skills directory (~/.agents/skills) to analyze each skill's frontmatter description.
-    Flags overly verbose descriptions that bloat System Prompts across AI Agent harnesses (Antigravity, Codex, Pi, etc.).
+    Flags overly verbose descriptions that bloat System Prompts across AI Agent harnesses.
 .PARAMETER SSOT
     The Single Source of Truth path. Defaults to ~/.agents/skills.
 .PARAMETER ThresholdChars
     Warning threshold in characters. Descriptions longer than this are flagged. Default: 160.
 .PARAMETER Top
     Number of top heavy skills to display. Default: 20.
+.PARAMETER Exclude
+    Additional directory patterns to exclude from audit.
 .EXAMPLE
     .\audit-tokens.ps1
 .EXAMPLE
     .\audit-tokens.ps1 -ThresholdChars 120 -Top 10
+.EXAMPLE
+    .\audit-tokens.ps1 -Exclude "test-*", "experimental-*"
 #>
 
 [CmdletBinding()]
 param(
     [string]$SSOT = "$HOME\.agents\skills",
     [int]$ThresholdChars = 160,
-    [int]$Top = 20
+    [int]$Top = 20,
+    [string[]]$Exclude = @()
 )
 
 $ErrorActionPreference = "Stop"
 
 function Resolve-HomePath([string]$PathStr) {
     if ($PathStr.StartsWith("~")) {
-        return $PathStr.Replace("~", $HOME)
+        $PathStr = $PathStr -replace "^~", $HOME
     }
     return [System.IO.Path]::GetFullPath($PathStr)
+}
+
+function Test-Excluded([string]$Name, [string[]]$Patterns) {
+    foreach ($p in $Patterns) {
+        if ($Name -like $p) { return $true }
+    }
+    return $false
 }
 
 $ResolvedSSOT = Resolve-HomePath $SSOT
@@ -46,8 +58,34 @@ if (!(Test-Path $ResolvedSSOT)) {
     exit 1
 }
 
-$skills = Get-ChildItem -Path $ResolvedSSOT -Directory | Where-Object { 
-    $_.Name -ne ".system" -and $_.Name -ne "_scripts" -and $_.Name -ne ".agents" -and $_.Name -ne "__pycache__"
+# Dynamic exclusion pipeline: Base defaults -> harnesses.json -> .gitignore -> CLI
+$Patterns = @(".*", "_*", "*cache*")
+
+$ConfigFile = Join-Path $PSScriptRoot "..\config\harnesses.json"
+if (Test-Path $ConfigFile) {
+    try {
+        $cfg = Get-Content -Path $ConfigFile -Raw | ConvertFrom-Json
+        if ($cfg.exclude) { $Patterns += $cfg.exclude }
+    } catch {}
+}
+
+$GitIgnoreFile = Join-Path $ResolvedSSOT ".gitignore"
+if (Test-Path $GitIgnoreFile) {
+    $ignored = Get-Content -Path $GitIgnoreFile | Where-Object { 
+        $_ -and -not $_.StartsWith("#") -and -not $_.StartsWith("!") 
+    } | ForEach-Object { $_.Trim().TrimEnd('/') }
+    $Patterns += $ignored
+}
+
+if ($Exclude.Count -gt 0) {
+    $Patterns += $Exclude
+}
+
+$ActivePatterns = $Patterns | Select-Object -Unique
+
+# Collect valid skills without hardcoded names
+$skills = Get-ChildItem -Path $ResolvedSSOT -Directory | Where-Object {
+    -not (Test-Excluded $_.Name $ActivePatterns) -and (Test-Path (Join-Path $_.FullName "SKILL.md"))
 }
 
 $results = @()
@@ -56,34 +94,32 @@ $totalEstimatedTokens = 0
 
 foreach ($dir in $skills) {
     $skillFile = Join-Path $dir.FullName "SKILL.md"
-    if (Test-Path $skillFile) {
-        $content = Get-Content -Path $skillFile -Raw -Encoding utf8
+    $content = Get-Content -Path $skillFile -Raw -Encoding utf8
+    
+    # Match YAML frontmatter between ---
+    if ($content -match '(?s)^---\r?\n(.*?)\r?\n---') {
+        $frontmatter = $matches[1]
         
-        # Match YAML frontmatter between ---
-        if ($content -match '(?s)^---\r?\n(.*?)\r?\n---') {
-            $frontmatter = $matches[1]
+        # Extract description
+        if ($frontmatter -match '(?ms)^description:\s*([^\r\n]+(?:\r?\n[ \t]+[^\r\n]+)*)') {
+            $rawDesc = $matches[1].Trim()
+            # Clean up multiline indentation and quotes
+            $cleanDesc = ($rawDesc -split '\r?\n' | ForEach-Object { $_.Trim() }) -join ' '
+            $cleanDesc = $cleanDesc.Trim('"', "'")
             
-            # Extract description
-            if ($frontmatter -match '(?ms)^description:\s*([^\r\n]+(?:\r?\n[ \t]+[^\r\n]+)*)') {
-                $rawDesc = $matches[1].Trim()
-                # Clean up multiline indentation and quotes
-                $cleanDesc = ($rawDesc -split '\r?\n' | ForEach-Object { $_.Trim() }) -join ' '
-                $cleanDesc = $cleanDesc.Trim('"', "'")
-                
-                $chars = $cleanDesc.Length
-                # Estimate tokens: ~3 chars per token for mixed bilingual content
-                $estTokens = [Math]::Ceiling($chars / 3.0)
-                
-                $totalChars += $chars
-                $totalEstimatedTokens += $estTokens
+            $chars = $cleanDesc.Length
+            # Estimate tokens: ~3 chars per token for mixed bilingual content
+            $estTokens = [Math]::Ceiling($chars / 3.0)
+            
+            $totalChars += $chars
+            $totalEstimatedTokens += $estTokens
 
-                $results += [PSCustomObject]@{
-                    Name            = $dir.Name
-                    Characters      = $chars
-                    EstimatedTokens = $estTokens
-                    IsBloated       = ($chars -gt $ThresholdChars)
-                    Description     = $cleanDesc
-                }
+            $results += [PSCustomObject]@{
+                Name            = $dir.Name
+                Characters      = $chars
+                EstimatedTokens = $estTokens
+                IsBloated       = ($chars -gt $ThresholdChars)
+                Description     = $cleanDesc
             }
         }
     }
@@ -113,7 +149,6 @@ foreach ($item in ($sorted | Select-Object -First $Top)) {
     
     Write-Host ("{0,2}. {1,-8} {2,-32} {3,5} chars | ~{4,4} tokens" -f $rank, $statusTag, $item.Name, $item.Characters, $item.EstimatedTokens) -ForegroundColor $color
     
-    # Print preview if bloated
     if ($item.IsBloated) {
         $preview = if ($item.Description.Length -gt 100) { $item.Description.Substring(0, 97) + "..." } else { $item.Description }
         Write-Host "     Preview: $preview" -ForegroundColor DarkGray

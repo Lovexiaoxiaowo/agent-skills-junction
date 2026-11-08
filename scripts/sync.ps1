@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Agent Skills Junction - Multi-Harness Sync Engine (Windows)
 .DESCRIPTION
@@ -21,17 +21,28 @@
 [CmdletBinding()]
 param(
     [string]$SSOT = "$HOME\.agents\skills",
-    [string]$ConfigFile = "$PSScriptRoot\..\config\harnesses.json",
+    [string]$ConfigFile = "",
     [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
 
+if ([string]::IsNullOrWhiteSpace($ConfigFile)) {
+    $ConfigFile = Join-Path $PSScriptRoot "..\config\harnesses.json"
+}
+
 function Resolve-HomePath([string]$PathStr) {
     if ($PathStr.StartsWith("~")) {
-        return $PathStr.Replace("~", $HOME)
+        $PathStr = $PathStr -replace "^~", $HOME
     }
     return [System.IO.Path]::GetFullPath($PathStr)
+}
+
+function Test-Excluded([string]$Name, [string[]]$Patterns) {
+    foreach ($p in $Patterns) {
+        if ($Name -like $p) { return $true }
+    }
+    return $false
 }
 
 $ResolvedSSOT = Resolve-HomePath $SSOT
@@ -55,11 +66,15 @@ if (!(Test-Path $ResolvedSSOT)) {
     }
 }
 
+# Dynamic exclusion pipeline: Base defaults -> harnesses.json -> .gitignore
+$Patterns = @(".*", "_*", "*cache*")
+
 # Load harnesses configuration
 $Targets = @()
 if (Test-Path $ConfigFile) {
     try {
         $cfgJson = Get-Content -Path $ConfigFile -Raw | ConvertFrom-Json
+        if ($cfgJson.exclude) { $Patterns += $cfgJson.exclude }
         foreach ($entry in $cfgJson.targets) {
             if ($entry.enabled -and $entry.path_windows) {
                 $Targets += [PSCustomObject]@{
@@ -74,16 +89,27 @@ if (Test-Path $ConfigFile) {
     }
 }
 
+$GitIgnoreFile = Join-Path $ResolvedSSOT ".gitignore"
+if (Test-Path $GitIgnoreFile) {
+    $ignored = Get-Content -Path $GitIgnoreFile | Where-Object { 
+        $_ -and -not $_.StartsWith("#") -and -not $_.StartsWith("!") 
+    } | ForEach-Object { $_.Trim().TrimEnd('/') }
+    $Patterns += $ignored
+}
+
+$ActivePatterns = $Patterns | Select-Object -Unique
+
 # Fallback default presets if config is empty or missing
 if ($Targets.Count -eq 0) {
     $defaultPaths = @(
         [PSCustomObject]@{ Name = "Pi / ThinkRail"; Path = "$HOME\.pi\agent\skills" },
         [PSCustomObject]@{ Name = "Codex CLI"; Path = "$HOME\.codex\skills" },
-        [PSCustomObject]@{ Name = "Gemini Config"; Path = "$HOME\.gemini\config\skills" },
+        [PSCustomObject]@{ Name = "Gemini Config / Antigravity"; Path = "$HOME\.gemini\config\skills" },
         [PSCustomObject]@{ Name = "Gemini Antigravity CLI"; Path = "$HOME\.gemini\antigravity-cli\skills" },
-        [PSCustomObject]@{ Name = "Claude Code"; Path = "$HOME\.claude\skills" },
+        [PSCustomObject]@{ Name = "Claude Desktop / Claude Code"; Path = "$HOME\.claude\skills" },
         [PSCustomObject]@{ Name = "Continue.dev"; Path = "$HOME\.continue\skills" },
-        [PSCustomObject]@{ Name = "OpenHands"; Path = "$HOME\.openhands\skills" }
+        [PSCustomObject]@{ Name = "OpenHands"; Path = "$HOME\.openhands\skills" },
+        [PSCustomObject]@{ Name = "Cursor Agent"; Path = "$HOME\.cursor\skills" }
     )
     $Targets = $defaultPaths
 }
@@ -121,10 +147,11 @@ foreach ($t in $Targets) {
             $linked++
             continue
         } else {
-            # Physical directory: merge uncommitted unique skills into SSOT
+            # Physical folder: merge uncommitted unique skills into SSOT
             Write-Host "   -> [MERGE] Physical folder found. Consolidating unique skills into SSOT..." -ForegroundColor Yellow
             $subItems = Get-ChildItem -Path $tPath -Directory
             foreach ($sub in $subItems) {
+                if (Test-Excluded $sub.Name $ActivePatterns) { continue }
                 $destPath = Join-Path $ResolvedSSOT $sub.Name
                 if (!(Test-Path $destPath)) {
                     if (!$DryRun) {
@@ -135,11 +162,11 @@ foreach ($t in $Targets) {
                 }
             }
 
-            # Backup & Remove original physical folder
+            # Backup original physical folder safely (never delete immediately)
             if (!$DryRun) {
                 $bak = "$tPath.bak_" + (Get-Date -Format "yyyyMMddHHmmss")
                 Rename-Item -Path $tPath -NewName (Split-Path -Leaf $bak) -Force
-                Remove-Item -Path $bak -Recurse -Force
+                Write-Host "      [BACKUP] Preserved original folder as: $bak" -ForegroundColor DarkGray
             } else {
                 Write-Host "      [DryRun] Would backup and replace physical folder with Junction." -ForegroundColor Yellow
             }
