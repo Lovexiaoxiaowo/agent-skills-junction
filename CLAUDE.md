@@ -8,7 +8,7 @@
 ## 1. 架构骨架 (Directory Tree)
 
 ```
-f:\whatst
+f:\whatst\agent-skills-junction
 ├── config/
 │   └── harnesses.json       # 声明被管辖 Agent 客户端路径规则及全局通配排除项 (SSOT 拓扑配置)
 ├── scripts/
