@@ -52,4 +52,6 @@ f:\whatst
   - 初始化中央仓库 `~/.agents/skills` 的本地 Git 跟踪保护并纳管 8 处客户端（110 个技能）。
   - 执行 67 款膨胀技能的一键卸载，直接作用于物理 SSOT，瞬时穿透全机 8 大客户端，System Prompt 静态开销降低 85.6%（从 ~8,666 Tokens 骤降至 ~1,247 Tokens）。
   - 重构过滤引擎：彻底消除硬编码过滤坏味道，建立「基础通配规则 + `config/harnesses.json` + `~/.agents/skills/.gitignore` + CLI 参数」的多级动态排除管线。
+  - 全量卸载 31 款 `dbs*` 技能，中央母库精炼收敛至 12 款核心高密度技能，全局常驻 System Prompt 开销最终降至 ~446 Tokens（相比最初 8,666+ Tokens 累计优化 94.9%）。
+
 
