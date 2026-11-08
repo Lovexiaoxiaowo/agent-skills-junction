@@ -159,6 +159,9 @@ ls -la ~/.pi/agent/skills
 
 # 自定义字符告警阈值（默认 160 字符，可按需更严格）
 .\scripts\audit-tokens.ps1 -ThresholdChars 120 -Top 15
+
+# 支持自定义排除通配规则（动态过滤内部或业务测试技能）
+.\scripts\audit-tokens.ps1 -Exclude "internal-*", "test-*"
 ``
 
 > [!TIP]

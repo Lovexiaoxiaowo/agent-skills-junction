@@ -144,6 +144,28 @@ ls -la ~/.pi/agent/skills
 
 ---
 
+## 🩺 Prompt Bloat & Token Auditor
+
+When your skill library grows, some AI Agent harnesses (e.g. Gemini / Antigravity, Codex, Pi) inject every skill's frontmatter `description` into the System Prompt as a routing index. Overly verbose descriptions from third-party skills can bloat every conversation with thousands of wasted tokens.
+
+Audit and monitor your skill token footprint:
+
+```powershell
+# Run skill token and description health audit (Windows)
+.\scripts\audit-tokens.ps1
+
+# Custom character warning threshold (default: 160)
+.\scripts\audit-tokens.ps1 -ThresholdChars 120 -Top 15
+
+# Custom wildcard exclusions (filter internal or private skills)
+.\scripts\audit-tokens.ps1 -Exclude "internal-*", "test-*"
+```
+
+> [!TIP]
+> **Best Practice**: Keep `description` under 100-120 characters as an intent-based router. Full instructions, schemas, and examples belong in the body of `SKILL.md`.
+
+---
+
 ## 🔄 Uninstallation & Clean-up
 
 To revert back to isolated standalone directories:
